@@ -9,6 +9,27 @@ import { enemies, spawnEnemy, resetEnemies } from './enemies.js';
 import { ui } from './ui.js';
 import { replay } from './replay.js';
 
+let audioContext;
+let analyser;
+let dataArray;
+let audioInitialized = false;
+
+function initAudio() {
+    if (audioInitialized) return;
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        audioContext = new AudioContext();
+        const audioEl = document.getElementById('backgroundMusic');
+        const source = audioContext.createMediaElementSource(audioEl);
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        analyser.connect(audioContext.destination);
+        dataArray = new Uint8Array(analyser.frequencyBinCount);
+        audioInitialized = true;
+    } catch(e) { console.error("Audio init error", e); }
+}
+
 // Setup Game Loop Logic
 function checkCollisions() {
     // Bullet vs Enemy
@@ -107,6 +128,24 @@ function checkForNearbyEnemies() {
 }
 
 function update(dt) {
+    // Audio Analysis
+    let audioData = { bass: 0, mid: 0, treble: 0 };
+    if (audioInitialized && analyser && !state.isReplaying) {
+        analyser.getByteFrequencyData(dataArray);
+        
+        let bassSum = 0;
+        for(let i=0; i<10; i++) bassSum += dataArray[i];
+        audioData.bass = (bassSum / 10) / 255; 
+
+        let midSum = 0;
+        for(let i=10; i<40; i++) midSum += dataArray[i];
+        audioData.mid = (midSum / 30) / 255;
+        
+        let trebleSum = 0;
+        for(let i=40; i<100; i++) trebleSum += dataArray[i];
+        audioData.treble = (trebleSum / 60) / 255;
+    }
+
     if (state.isReplaying) {
         replay.update();
         // Still allow particles to update visually during replay for flair

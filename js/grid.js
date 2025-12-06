@@ -7,22 +7,17 @@ class GridCell {
         this.y = y;
         this.size = size;
         this.distortion = 0;
-        this.color = 'rgba(30, 30, 40, 0.3)';
-        this.targetColor = this.color;
-        this.colorTransition = 0;
-        this.gradient = Math.random() * 360;
         this.brightness = 0.1;
+        // Base hue gradient across screen for rainbow effect
+        this.baseHue = (x / Math.max(canvas.width, 1)) * 360; 
     }
 
     disturb(strength, color) {
         this.distortion = Math.min(this.distortion + strength, 1);
-        this.targetColor = color;
         this.brightness = Math.min(this.brightness + strength, 0.8);
     }
 
-    update() {
-        // Optimization: Pre-calculate speed multiplier outside or access state less frequently if possible
-        // But here simple access is fine.
+    update(dt, audioData) {
         const speedMultiplier = {
             'HD': 1,
             'LD': 2,
@@ -32,20 +27,33 @@ class GridCell {
         if (this.distortion > 0) {
             this.distortion -= 0.05 * speedMultiplier;
             this.brightness = Math.max(0.1, this.brightness - (0.02 * speedMultiplier));
+        } else {
+             // Pulse base brightness with music bass
+             this.brightness = 0.1 + (audioData.bass * 0.3);
         }
     }
 
-    draw(ctx) {
+    draw(ctx, time, audioData) {
         // Optimization: Cull effectively invisible cells
-        if (this.brightness < 0.12 && this.distortion <= 0.01) return;
+        if (this.brightness < 0.05 && this.distortion <= 0.01) return;
 
-        ctx.strokeStyle = `hsla(${this.gradient}, 70%, ${Math.floor(this.brightness * 100)}%, 0.3)`;
+        // Dynamic Rainbow: Base hue + time shift + music influence
+        const hue = (this.baseHue + time * 0.02 + (audioData.mid * 50)) % 360;
+        const sat = 60 + (audioData.treble * 40);
+        const lit = Math.floor(Math.min(this.brightness * 100, 100));
         
-        // Faster line width calculation
-        ctx.lineWidth = this.distortion > 0 ? 1 + this.distortion * 2 : 1;
+        ctx.strokeStyle = `hsla(${hue}, ${sat}%, ${lit}%, 0.3)`;
+        
+        // Line width pulses with bass
+        const bassPulse = audioData.bass * 2;
+        ctx.lineWidth = (this.distortion > 0 ? 1 + this.distortion * 2 : 1) + bassPulse;
 
         let x = this.x;
         let y = this.y;
+
+        // Fluid motion: slight wave movement based on time and audio
+        const waveX = Math.sin(time * 0.001 + this.y * 0.01) * (audioData.bass * 10);
+        const waveY = Math.cos(time * 0.001 + this.x * 0.01) * (audioData.bass * 10);
 
         if (this.distortion > 0.01) {
              // Simple jitter
@@ -55,7 +63,7 @@ class GridCell {
         }
 
         ctx.beginPath();
-        ctx.rect(x, y, this.size, this.size);
+        ctx.rect(x + waveX, y + waveY, this.size, this.size);
         ctx.stroke();
     }
 }
@@ -65,6 +73,8 @@ export const grid = {
     cellSize: 40,
     rows: 0,
     cols: 0,
+    time: 0,
+    lastAudioData: { bass: 0, mid: 0, treble: 0 },
 
     init() {
         this.cells = [];
@@ -78,22 +88,20 @@ export const grid = {
         }
     },
 
-    update() {
-        // Optimization: Don't update cells that are idle if possible, 
-        // but they need to fade out. 
-        this.cells.forEach(cell => cell.update());
+    update(dt = 16, audioData = { bass: 0, mid: 0, treble: 0 }) {
+        this.time += dt;
+        this.lastAudioData = audioData;
+        
+        this.cells.forEach(cell => cell.update(dt, audioData));
     },
 
     draw() {
-        // Optimization: Batch drawing if possible? 
-        // Individual colors make batching hard. 
-        // Ensure no shadow blur is active from previous draws.
         ctx.shadowBlur = 0; 
         
         const skipFactor = state.graphicsQuality === 'VLD' ? 2 : 1;
         
         for (let i = 0; i < this.cells.length; i += skipFactor) {
-            this.cells[i].draw(ctx);
+            this.cells[i].draw(ctx, this.time, this.lastAudioData);
         }
     },
 
